@@ -1,0 +1,7 @@
+main
+save.sh
+zip
+tmp
+*.scratch
+!.gitignore
+
