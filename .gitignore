@@ -1,7 +1,11 @@
 main
+main.exe
 save.sh
 zip
-tmp
+LIRE
+tmp*
+scratch
 *.scratch
+TRIDENT.geany
 !.gitignore
 

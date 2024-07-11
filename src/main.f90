@@ -93,7 +93,7 @@ character(len=  1) :: sep
                         spy_unit = spy_unit )         ! the program executes 'prg_repeat' times
       enddo
 
-      write(out_unit,*) 'program completed'
+      write(out_unit,*) 'Program completed'
 
    return
    endsubroutine prg_surf

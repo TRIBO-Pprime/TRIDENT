@@ -3,14 +3,15 @@ module script
 use data_arch,       only : I4, R8
 use miscellaneous,   only : get_unit
 use surfile,         only : scale_surf, read_surf, write_surf, unit2IUf
-use filter,          only : median_filter
+use filter,          only : median_filter, fft_filter
 use intpl,           only : tborne
 use abbott,          only : abbott_param
 use morpho,          only : topology, calcul_normales, surf_area
+use grad_curv,       only : peaks_and_pits_curvatures
 use stat_mom,        only : moment_stat, calc_moments, calc_median
 use asfc,            only : calcul_asfc_hermite, indice_fractal
-use anisotropy,      only : correlation_parameters
-use fftw3,           only : init_fftw3, fftw_plan_with_nthreads, tab_init_fftw3, end_fftw3, tab_end_fftw3, NB_THREADS_FFT
+use anisotropy,      only : correlation_parameters, multiple_anisotropy
+use fftw3,           only : init_fftw3, fftw_plan_with_nthreads, tab_init_fftw3, end_fftw3, tab_end_fftw3, NB_THREADS_FFT, PAD_FFT
 use files,           only : make_path, path2vec, vec2path, filename, dir_separator, mkdir, dirname
 use tchebychev,      only : least_squares_tcheby
 
@@ -28,7 +29,9 @@ integer(kind=I4) :: NB_ITER_DEB, NB_ITER_FIN, SAVE_LIGNE_LUE
 logical(kind=I4) :: GLOBAL_OMP
 logical(kind=I4) :: WITH_SAMPLING
 
-character(len=512) :: NOM_SUR
+logical(kind=I4) :: OUT_CMD
+
+character(len=512) :: NOM_SUR, SAV_NOM_SUR
 
 character(len=  1) :: SEP
 
@@ -76,10 +79,6 @@ o:    do
 
                call debut___()
 
-            case('CORR_ECH')
-
-
-
             case('ANALYSES')
 
                call analyses( tab        = surf,            &  ! IN
@@ -87,22 +86,40 @@ o:    do
                               scal_samp  = samp_prop,       &  ! IN
                               tab_bounds = sample_bounds )     ! IN
 
-            case('HISTORY_')
+            case('CORR_ECH')
 
 
+            case('CROP_IMG')
+
+               call crop_img( tab  = surf,         &  ! INOUT
+                              scal = surf_prop )      ! INOUT
 
             case('FILTER__')
 
 
-
             case('FIND_DEG')
 
+
+            case('FT_GAUSS')
+
+               call ft_gauss( tab  = surf,         &  ! OUT
+                              scal = surf_prop )      ! OUT
+
+            case('GET_NAME')
+
+               NOM_SUR = SAV_NOM_SUR
+               call chdir("../")
+
+            case('HISTORY_')
 
 
             case('LECT_BAS')
 
                call lect_bas( tab  = surf,         &  ! OUT
                               scal = surf_prop )      ! OUT
+
+            case('LOW_PASS')
+
 
             case('LSSQ_IMG')
 
@@ -116,15 +133,14 @@ o:    do
             case('RESTRICT')
 
 
+            case('SAV_NAME')
+
+               SAV_NOM_SUR = NOM_SUR
 
             case('SAVE_SUR')
 
                call save_sur( tab  = surf,         &  ! INOUT
                               scal = surf_prop )      ! INOUT
-
-            case('LOW_PASS')
-
-
 
             case('SMOOTH__')
 
@@ -144,16 +160,17 @@ o:    do
 
             case('VERBOSES')
 
-
+               OUT_CMD = .TRUE.
 
             case('END_LOOP')
 
-               call end_loop( tab        = surf,               &  ! INOUT
-                              tab_bounds = sample_bounds )        ! INOUT
+               call end_loop( tab_bounds = sample_bounds )        ! INOUT
 
             case('FIN_____')
 
                close(JOB)
+
+               if (OUT_CMD) write(*,*) 'Program completed'
 
                exit o
 
@@ -164,10 +181,13 @@ o:    do
    return
    endsubroutine read_job
 
+
    subroutine debut___()
    implicit none
 
       GLOBAL_OMP = .false.
+
+      OUT_CMD = .false.
 
       call random_init(.true., .true.)
 
@@ -208,19 +228,9 @@ o:    do
    real(kind=R8),    intent(out), allocatable, dimension(:,:) :: tab
    type(scale_surf), intent(out)                              :: scal
 
-!~       character(len=512), allocatable, dimension(:) :: vpath
-
-!~       character(len = :), allocatable               :: path_surf_dir
-
       NOM_SUR = repeat(' ', len(NOM_SUR) )
 
       read(JOB,*) NOM_SUR ; LIGNE_LUE = LIGNE_LUE + 1 ; write(SPY,*) LIGNE_LUE, 'nom_sur ', trim(NOM_SUR)
-
-!~       call path2vec( file_path = trim(NOM_SUR),    &  !
-!~                      vec_path  = vpath )              !
-
-!~       call vec2path( file_path = path_surf_dir,                   &  !
-!~                      vec_path  = vpath( 1:size(vpath) - 1 ) )        !
 
       call chdir( dirname(NOM_SUR) )
       write(SPY, *) 'New working directory, after surface read: ', dirname(NOM_SUR)
@@ -253,6 +263,43 @@ o:    do
 
    return
    endsubroutine smooth__
+
+
+   subroutine crop_img(tab, scal)
+   implicit none
+   type(scale_surf), intent(inout)                              :: scal
+   real(kind=R8),    intent(inout), allocatable, dimension(:,:) :: tab
+
+      integer(kind=I4) :: long, larg, new_x, new_y
+
+      real(kind=R8), allocatable, dimension(:,:) :: tab_tmp
+
+      read(JOB,*) new_x, new_y ; LIGNE_LUE = LIGNE_LUE + 1 ; write(SPY,*) LIGNE_LUE, new_x, new_y
+
+      long = scal%xres
+      larg = scal%yres
+
+      if (long < new_x .or. larg < new_y) stop 'Error crop surface in crop_img'
+
+      allocate( tab_tmp(1:new_x, 1:new_y) )
+
+      tab_tmp(1:new_x, 1:new_y) = tab(1:new_x, 1:new_y)
+
+      deallocate( tab ) ; allocate( tab(1:new_x, 1:new_y) )
+
+      tab(1:new_x, 1:new_y) = tab_tmp(1:new_x, 1:new_y)
+
+      deallocate( tab_tmp )
+
+      scal%xres = new_x
+      scal%yres = new_y
+
+      scal%nofpoints = new_x * new_y
+
+      call write_surf(nom_fic = trim(NOM_SUR), tab_s = tab(1:new_x, 1:new_y), scal = scal)
+
+   return
+   endsubroutine crop_img
 
 
    subroutine save_sur(tab, scal)
@@ -365,18 +412,18 @@ o:    do
 
       integer(kind=I4) :: lb1, ub1, lb2, ub2
       integer(kind=I4) :: k
+      integer(kind=I4) :: lf
       integer(kind=I4) :: nn, pp
       integer(kind=I4) :: ns, ps
       integer(kind=I4) :: ibatch
       integer(kind=I4) :: exit_status
 
       character(len=512) :: cwd
-      character(len=512) :: ana_file, surf_filename
+      character(len=512) :: ana_file, sf, surf_filename, header
       character(len=128) :: ana_type
+      character(len=006) :: degxy
 
       type(tborne) :: bound
-
-!~       real(kind=R8) :: scal_lx_tmp, scal_ly_tmp
 
       real(kind=R8), allocatable, dimension(:,:) :: tab_samp
 
@@ -389,57 +436,47 @@ o:    do
 
       call getcwd( cwd )
 
-      ! surface filename without the folders, with .txt instead of .sur
+      ! surface filename without the folders, with .csv instead of .sur
       surf_filename = filename( NOM_SUR )
-      surf_filename = surf_filename(1:len_trim(surf_filename) - 4)//".txt"
+      lf = len_trim(surf_filename)
+      surf_filename = surf_filename(1:lf - 4)//".csv"
 
-      ana_file = repeat( ' ', len(ana_file) )
-      select case( ana_type(1:8) )
+      sf = filename( NOM_SUR )
+      degxy = sf(lf - 9:lf - 3)
 
-         case('abbott__')
-            ana_file = "resu_abboglob"//SEP//trim( surf_filename )
+      sf = sf(1:lf - 10)//".sur"
 
-         case('complexi')
-            ana_file = "resu_compglob"//SEP//trim( surf_filename )
+      call make_ana_file(ana_f = ana_file, anal = ana_type(1:8))
+      ana_file(10:13) = 'glob'
 
-         case('elli_acv')
-            call fftw_plan_with_nthreads( nthreads = NB_THREADS_FFT )
-            call init_fftw3( long = nn, larg = pp )
+      call fftw_plan_with_nthreads( nthreads = NB_THREADS_FFT )
 
-            ana_file = "resu_elliglob"//SEP//trim( surf_filename )
+      call init_fftw3( long = 2 * ( nint(PAD_FFT * nn)/2 ),    &  !
+                       larg = 2 * ( nint(PAD_FFT * pp)/2 ) )      ! because of 0 padding
 
-         case('facettes')
-            ana_file = "resu_faceglob"//SEP//trim( surf_filename )
-
-         case('ind_frac')
-            ana_file = "resu_ind_glob"//SEP//trim( surf_filename )
-
-         case('statisti')
-            ana_file = "resu_statglob"//SEP//trim( surf_filename )
-
-         case('topology')
-            ana_file = "resu_topoglob"//SEP//trim( surf_filename )
-
-         case default
-            stop 'Bad choice of analysis in subroutine analyses'
-
-      endselect
+      call make_header(head = header, anal = ana_type(1:8))
 
       call make_path(wkd = trim(cwd), file_path = trim(ana_file), exit_status = exit_status)
 
       open( unit = STA, file = trim(ana_file) )
 
-      call analyses_stat( tab      = tab(1:nn, 1:pp),   &  !
-                          sub_samp = .false.,           &  !
-                          scal     = scal,              &  !
-                          anal     = ana_type,          &  !
-                          omp      = GLOBAL_OMP )          !
+         write(STA,'(a)') trim(header)
+
+         call analyses_stat( tab      = tab(1:nn, 1:pp),   &  !
+                             sub_samp = .false.,           &  !
+                             scal     = scal,              &  !
+                             anal     = ana_type,          &  !
+                             omp      = GLOBAL_OMP )          !
+
+         if (OUT_CMD) write(*,*) trim(sf), ' ', trim(degxy(2:)), ' ', ana_type(1:8), ' ', 'glob'
 
       close( STA )
 
-      if ( index(ana_type, 'elli_acv') /= 0 ) call end_fftw3()
+      call end_fftw3()
 
-      if ( WITH_SAMPLING ) then
+      !=======================================================
+
+      if ( WITH_SAMPLING .and. ana_type(1:8) /= 'abbott__') then
 
          bound = tab_bounds( 1 )
 
@@ -450,50 +487,24 @@ o:    do
 
          allocate( tab_samp(1:ns, 1:ps) )
 
-!~          scal_lx_tmp = scal%lx ; scal%lx = (scal%lx / nn) * ns
-!~          scal_ly_tmp = scal%ly ; scal%ly = (scal%ly / pp) * ps
-
          ibatch = max( ( NB_ITER_FIN - NB_ITER_DEB + 1 ) / NB_THREADS, 1 )
 
          call get_unit(STA)
 
          call getcwd( cwd )
 
-         ana_file = repeat( ' ', len(ana_file) )
-         select case( ana_type(1:8) )
+         call make_ana_file(ana_f = ana_file, anal = ana_type(1:8))
 
-            case('abbott__')
-               ana_file = "resu_abbott__"//SEP//trim( surf_filename )
+         call fftw_plan_with_nthreads( nthreads = 1 )
 
-            case('complexi')
-               ana_file = "resu_complexi"//SEP//trim( surf_filename )
-
-            case('elli_acv')
-               call fftw_plan_with_nthreads( nthreads = 1 )
-               call tab_init_fftw3( long = ns, larg = ns )
-
-               ana_file = "resu_elli_acv"//SEP//trim( surf_filename )
-
-            case('facettes')
-               ana_file = "resu_facettes"//SEP//trim( surf_filename )
-
-            case('ind_frac')
-               ana_file = "resu_ind_frac"//SEP//trim( surf_filename )
-
-            case('statisti')
-               ana_file = "resu_statisti"//SEP//trim( surf_filename )
-
-            case('topology')
-               ana_file = "resu_topology"//SEP//trim( surf_filename )
-
-            case default
-               stop 'Bad choice of analysis in subroutine analyses'
-
-         endselect
+         call tab_init_fftw3( long = 2 * ( nint(PAD_FFT * ns)/2 ),    &  !
+                              larg = 2 * ( nint(PAD_FFT * ps)/2 ) )      ! because of 0 padding
 
          call make_path(wkd = trim(cwd), file_path = trim(ana_file), exit_status = exit_status)
 
          open( unit = STA, file = trim(ana_file), share = 'DENYRW' )
+
+         write(STA,'(a)') trim(header)
 
          !$OMP PARALLEL DEFAULT(SHARED) NUM_THREADS(NB_THREADS) IF (GLOBAL_OMP)
          !$OMP DO SCHEDULE (STATIC, ibatch) PRIVATE(k, bound, tab_samp, lb1, lb2, ub1, ub2)
@@ -519,18 +530,134 @@ o:    do
 
          close( STA )
 
-         if ( ana_type(1:8) == 'elli_acv' ) call tab_end_fftw3()
+         call tab_end_fftw3()
 
          deallocate( tab_samp )
 
-!~          scal%lx = scal_lx_tmp
-!~          scal%ly = scal_ly_tmp
+         if (OUT_CMD) write(*,*) trim(sf), ' ', trim(degxy(2:)), ' ', ana_type(1:8), ' ', 'samp'
 
       endif
 
    return
 
    contains
+
+      subroutine make_ana_file(ana_f, anal)
+      implicit none
+      character(len=*), intent(out) :: ana_f
+      character(len=8), intent(in ) :: anal
+
+         ana_f = repeat( ' ', len(ana_f) )
+
+         select case( anal )
+
+            case('abbott__')
+               ana_f = "resu_abbott__"//SEP//trim( surf_filename )
+
+            case('complexi')
+               ana_f = "resu_complexi"//SEP//trim( surf_filename )
+
+            case('elli_acv')
+               ana_f = "resu_elli_acv"//SEP//trim( surf_filename )
+
+            case('facettes')
+               ana_f = "resu_facettes"//SEP//trim( surf_filename )
+
+            case('ind_frac')
+               ana_f = "resu_ind_frac"//SEP//trim( surf_filename )
+
+            case('statisti')
+               ana_f = "resu_statisti"//SEP//trim( surf_filename )
+
+            case('topology')
+               ana_f = "resu_topology"//SEP//trim( surf_filename )
+
+            case default
+               stop 'Bad choice of analysis in subroutine analyses'
+
+         endselect
+
+      return
+      endsubroutine make_ana_file
+
+      subroutine make_header(head, anal)
+      implicit none
+      character(len=*), intent(out) :: head
+      character(len=8), intent(in ) :: anal
+
+         head = repeat( ' ', len(head) )
+
+         select case( anal )
+
+            case('abbott__')
+               head = 'surf'//',smrk1'//degxy//       &  ! (*) ISO
+                              ',smrk2'//degxy//       &  ! (*) ISO
+                              ',spk__'//degxy//       &  ! (*) ISO
+                              ',svk__'//degxy//       &  ! (*) ISO
+                              ',Sk___'//degxy//       &  ! (*) ISO
+                              ',pente'//degxy//       &  !
+                              ',residus'//degxy//     &  !
+                              ',coeffa_tan'//degxy//  &  !
+                              ',coeffb_tan'//degxy       !
+
+            case('complexi')
+               head = 'surf'//',Sasfc'//degxy//',R2adj'//degxy ! (*) ISO
+
+            case('elli_acv')
+               head = 'surf'//',Rmax_'//degxy//         &  ! ellipsis big axis
+                              ',Sal__'//degxy//         &  ! ellipsis small axis           (*) ISO
+                              ',Stri_'//degxy//         &  ! another anisotropy factor     (*) ISO almost 1/Str
+                              ',Std__'//degxy//         &  ! main texture orientation      (*) ISO
+                              ',d.sl_'//degxy//         &  ! radius of greatest slope
+                              ',b.sl_'//degxy//         &  ! greatest slope
+                              ',r.sl_'//degxy//         &  ! slope anisotropy factor
+                              ',r.cv_'//degxy//         &  ! curvature anisotropy factor
+                              ',bmp__'//degxy//         &  ! maximum over [0,179°] of the peaks mean width'
+                              ',smp__'//degxy//         &  ! minimum over [0,179°] of the peaks mean width'
+                              ',rmp__'//degxy//         &  ! ratio bmp/smp'
+                              ',bml__'//degxy//         &  ! maximum over [0,179°] of the path length'
+                              ',sml__'//degxy//         &  ! minimum over [0,179°] of the path length'
+                              ',rml__'//degxy//         &  ! ratio bml/sml'
+                              ',bms__'//degxy//         &  ! maximum over [0,179°] of the standard deviation of slope'
+                              ',sms__'//degxy//         &  ! minimum over [0,179°] of the standard deviation of slope'
+                              ',rms__'//degxy              ! ratio bms/sms'
+
+            case('facettes')
+               head = 'surf'//',Sh___'//degxy//',Sdr__'//degxy ! %faces in a 5° cone, Sdr: (*) ISO
+
+            case('ind_frac')
+               head = 'surf'//',Smbd_'//degxy//',ord_orig'//degxy//',R2adj'//degxy ! Smbd: Minkowski–Bouligand dimension
+
+            case('statisti')
+               head = 'surf'//',Sv___'//degxy//         &  ! (*) ISO
+                              ',Sp___'//degxy//         &  ! (*) ISO
+                              ',Smd__'//degxy//         &  ! median
+                              ',Sa___'//degxy//         &  ! (*) ISO
+                              ',Sm___'//degxy//         &  ! mean
+                              ',Sq___'//degxy//         &  ! (*) ISO
+                              ',Ssk__'//degxy//         &  ! (*) ISO
+                              ',Sku__'//degxy//         &  ! (*) ISO
+                              ',Sks__'//degxy              ! sku/(ssk**2 + 1)
+
+            case('topology')
+               head = 'surf'//',Snb1_'//degxy//         &  ! nb_cells_1
+                              ',Smc1_'//degxy//         &  ! median_size_1
+                              ',Sk1__'//degxy//         &  ! fraction_of_surface_1
+                              ',Snb2_'//degxy//         &  ! nb_cells_2
+                              ',Smc2_'//degxy//         &  ! median_size_2
+                              ',Sk2__'//degxy//         &  ! fraction_of_surface_2
+                              ',Sdq__'//degxy//         &  ! gradient quadratic mean
+                              ',Scq__'//degxy//         &  ! curvature quadratic mean
+                              ',Sh3z_'//degxy//         &  ! 3 highest curvature mean
+                              ',Sv3z_'//degxy              ! 3 deepest curvature mean
+
+            case default
+               stop 'Bad choice of analysis in subroutine analyses'
+
+         endselect
+
+      return
+      endsubroutine make_header
 
       subroutine analyses_stat(tab, sub_samp, scal, anal, omp)
       implicit none
@@ -543,12 +670,14 @@ o:    do
          integer (kind=I4) :: nx, ny
 
          real(kind=R8)     :: ra_t, md
-         real(kind=R8)     :: dx, dy, si
+         real(kind=R8)     :: dx, dy, si, fft_cutoff
 
          type(moment_stat) :: mx
 
-         real(kind=R8), dimension(:),   allocatable :: vec_heights
-         real(kind=R8), dimension(1:20)             :: ana_res
+         real(kind=R8), dimension(:,:), allocatable :: tab_tmp
+
+         real(kind=R8), dimension(:), allocatable :: vec_heights
+         real(kind=R8), dimension(1:20)           :: ana_res
 
          ana_res = 0
 
@@ -575,18 +704,17 @@ o:    do
                                   omp     = omp )                                !
 
                !$omp critical
-               write(STA,'(9E18.6,T172,a)') ana_res( 1), & ! smr1, iso 25178
-                                            ana_res( 2), & ! smr2, iso 25178
-                                            ana_res( 3), & ! spk , iso 25178
-                                            ana_res( 4), & ! svk , iso 25178
-                                            ! 5 et 6 pour off1 et off2
-                                            ana_res( 7), & ! sk  , iso 25178
-                                            ana_res( 8), & ! core slope
-                                            ana_res( 9), & ! adjustment factor (tangent fit)
-                                            ana_res(10), & ! coeffa_tan        (tangent fit)
-                                            ana_res(11), & ! coeffb_tan        (tangent fit)
-                                            '  smr1   smr2   spk   svk   sk   pente   residus'// & !
-                                            '  coeffa_tan   coeffb_tan'                            !
+               write(STA,'(9(a,E18.6))')     trim(sf)//',', &  !
+                                               ana_res( 1), &  ! smrk1, iso 25178
+                                          ',', ana_res( 2), &  ! smrk2, iso 25178
+                                          ',', ana_res( 3), &  ! spk  , iso 25178
+                                          ',', ana_res( 4), &  ! svk  , iso 25178
+                                                               ! 5 et 6 pour off1 et off2
+                                          ',', ana_res( 7), &  ! sk   , iso 25178
+                                          ',', ana_res( 8), &  ! core slope
+                                          ',', ana_res( 9), &  ! adjustment factor (tangent fit)
+                                          ',', ana_res(10), &  ! coeffa_tan        (tangent fit)
+                                          ',', ana_res(11)     ! coeffb_tan        (tangent fit)
                !$omp end critical
 
                deallocate( vec_heights )
@@ -598,15 +726,41 @@ o:    do
                               larg = ny,                 &  !
                               res  = ana_res(1:6) )         !
 
+               fft_cutoff = dx / 5.e-6 ! 5.e-6 = 5 µm
+
+               allocate( tab_tmp(1:nx, 1:ny) )
+
+               call fft_filter(tab       = tab(1:nx, 1:ny),      & ! in
+                               long      = nx,                   & ! in
+                               larg      = ny,                   & ! in
+                               cutoff    = fft_cutoff,           & ! in
+                               bf_tab    = tab_tmp(1:nx, 1:ny),  & ! out
+                               multi_fft = sub_samp)               ! in
+
+               call peaks_and_pits_curvatures( heights      = tab_tmp(1:nx, 1:ny),  &  !
+                                               nx           = nx,                   &  !
+                                               ny           = ny,                   &  !
+                                               dx           = dx,                   &  !
+                                               dy           = dy,                   &  !
+                                               S_param_grad = ana_res(07),          &  !
+                                               S_param_curv = ana_res(08),          &  !
+                                               peak_curv    = ana_res(09),          &  !
+                                               pits_curv    = ana_res(10) )            !
+
+               deallocate( tab_tmp )
+
                !$omp critical
-               write(STA,'(6E18.6,T124,a)')  ana_res(1), & ! number of cells 0.15/0.85
-                                             ana_res(2), & ! median size (percentage of surface)
-                                             ana_res(3), & ! percentage of surface above 0.15/0.85
-                                             ana_res(4), & ! number of cells 0.15/0.95
-                                             ana_res(5), & ! median size (percentage of surface)
-                                             ana_res(6), & ! percentage of surface above 0.15/0.95
-                                             '  nb_cells_1   median_size_1   fraction_of_surface_1'// & !
-                                             '  nb_cells_2   median_size_2   fraction_of_surface_2'     !
+               write(STA,'(10(a,E18.6))')  trim(sf)//',',      &  !
+                                              ana_res(01),     &  ! number of cells 0.15/0.85
+                                         ',', ana_res(02),     &  ! median size (percentage of surface)
+                                         ',', ana_res(03),     &  ! percentage of surface above 0.15/0.85
+                                         ',', ana_res(04),     &  ! number of cells 0.15/0.95
+                                         ',', ana_res(05),     &  ! median size (percentage of surface)
+                                         ',', ana_res(06),     &  ! percentage of surface above 0.15/0.95
+                                         ',', ana_res(07),     &  ! Sdq__ gradient  quadratic mean
+                                         ',', ana_res(08),     &  ! Scq__ curvature quadratic mean
+                                         ',', ana_res(09),     &  ! Sh3z_ 3 highest curvature mean
+                                         ',', ana_res(10)         ! Sv3z_ 3 deepest curvature mean
                !$omp end critical
 
             case( 'statisti' )
@@ -626,15 +780,17 @@ o:    do
                               ra_t, mx%mu, mx%si, mx%sk, mx%ku ]        !
 
                !$omp critical
-               write(STA,'(8E18.6,T154,a)') ana_res(1),  &  ! max depth
-                                            ana_res(2),  &  ! max height
-                                            ana_res(3),  &  ! median
-                                            ana_res(4),  &  ! absolute roughness
-                                            ana_res(5),  &  ! mean height
-                                            ana_res(6),  &  ! standard deviation
-                                            ana_res(7),  &  ! skewness
-                                            ana_res(8),  &  ! kurtosis
-                                            '  Sv(signed)   Sp   Md   Sa   Mu   Sq   Ssk   Sku'
+               write(STA,'(9(a,E18.6))')  trim(sf)//',',                         &  !
+                                               ana_res(1),                       &  ! max depth
+                                          ',', ana_res(2),                       &  ! max height
+                                          ',', ana_res(3),                       &  ! median
+                                          ',', ana_res(4),                       &  ! absolute roughness
+                                          ',', ana_res(5),                       &  ! mean height
+                                          ',', ana_res(6),                       &  ! standard deviation
+                                          ',', ana_res(7),                       &  ! skewness
+                                          ',', ana_res(8),                       &  ! kurtosis
+                                          ',', ana_res(8)/( ana_res(7)**2 + 1 )     ! kind of kurtosis excess
+
                !$omp end critical
 
             case( 'ind_frac' )
@@ -645,10 +801,10 @@ o:    do
                                     indf   = ana_res(1:3) )       !
 
                !$omp critical
-               write(STA, '(3E18.6, T64, a)')   ana_res(1),    &  ! fractal dimension (slope)
-                                                ana_res(2),    &  ! ordinate at origin
-                                                ana_res(3),    &  ! adjustment factor
-                                                '   slope   ord_orig   R2adj'
+               write(STA, '(3(a,E18.6))')  trim(sf)//',',     &  !
+                                                ana_res(1),   &  ! fractal dimension (slope)
+                                           ',', ana_res(2),   &  ! ordinate at origin
+                                           ',', ana_res(3)       ! adjustment factor
                !$omp end critical
 
             case( 'facettes' )
@@ -667,9 +823,9 @@ o:    do
                                aire       = ana_res(2) )                !
 
                !$omp critical
-               write(STA, '(2E18.6,T46,a)')  ana_res(1),    &  ! horizontality
-                                             ana_res(2),    &  ! relative area
-                                             '   %age_fac_5%   rel_area'
+               write(STA, '(2(a,E18.6))') trim(sf)//',',     &  !
+                                               ana_res(1),   &  ! horizontality
+                                          ',', ana_res(2)       ! relative area
                !$omp end critical
 
             case( 'complexi' )
@@ -680,9 +836,9 @@ o:    do
                                          omp      = omp )                  !
 
                !$omp critical
-               write(STA, '(2E18.6,T46,a)')  ana_res(1),    &  ! asfc
-                                             ana_res(2),    &  ! adjustment factor
-                                             '   asfc2  R2adj'
+               write(STA, '(2(a,E18.6))') trim(sf)//',',     &  !
+                                               ana_res(1),   &  ! asfc
+                                          ',', ana_res(2)       ! adjustment factor
                !$omp end critical
 
             case( 'elli_acv' )
@@ -697,18 +853,32 @@ o:    do
                                             multi_fft = sub_samp,          &  ! IN
                                             omp       = omp )                 ! IN
 
+               call multiple_anisotropy( tabin     = tab(1:nx, 1:ny),       &  ! IN
+                                         long      = nx,                    &  ! IN
+                                         larg      = ny,                    &  ! IN
+                                         scale_xy  = [ dx, dy ],            &  ! IN
+                                         multi_fft = sub_samp,              &  ! IN
+                                         vec_ani   = ana_res(9:17) )           ! OUT
+
                !$omp critical
-               write(STA,'(8E18.6, T154, a)')   ana_res(1), &  ! big axis
-                                                ana_res(2), &  ! small axis
-                                                ana_res(3), &  ! big/small -> anisotropy 1
-                                                ana_res(4), &  ! anisotropy angle
-                                                ana_res(5), &  ! radius of greatest slope
-                                                ana_res(6), &  ! greatest slope
-                                                ana_res(7), &  ! slope anisotropy factor
-                                                ana_res(8), &  ! curvature anisotropy factor
-                                                '   x_acv   y_acv   x_acv/y_acv   angle(°)'       // & !
-                                                '   radius_max_slope   max_slope  max/min_slope'  // & !
-                                                '   max/min_curvature'                                 !
+               write(STA,'(17(a,E18.6))') trim(sf)//',',       &  !
+                                              ana_res(01),     &  ! big axis
+                                         ',', ana_res(02),     &  ! small axis
+                                         ',', ana_res(03),     &  ! big/small -> anisotropy 1
+                                         ',', ana_res(04),     &  ! anisotropy angle
+                                         ',', ana_res(05),     &  ! radius of greatest slope
+                                         ',', ana_res(06),     &  ! greatest slope
+                                         ',', ana_res(07),     &  ! slope anisotropy factor
+                                         ',', ana_res(08),     &  ! curvature anisotropy factor
+                                         ',', ana_res(09),     &  ! maximum over [0,179°] of the peaks mean width'
+                                         ',', ana_res(10),     &  ! minimum over [0,179°] of the peaks mean width'
+                                         ',', ana_res(11),     &  ! ratio bmp/smp'
+                                         ',', ana_res(12),     &  ! maximum over [0,179°] of the path length'
+                                         ',', ana_res(13),     &  ! minimum over [0,179°] of the path length'
+                                         ',', ana_res(14),     &  ! ratio bml/sml'
+                                         ',', ana_res(15),     &  ! maximum over [0,179°] of the standard deviation of slope'
+                                         ',', ana_res(16),     &  ! minimum over [0,179°] of the standard deviation of slope'
+                                         ',', ana_res(17)         ! ratio bms/sms'
                !$omp end critical
 
             case default
@@ -723,16 +893,90 @@ o:    do
    endsubroutine analyses
 
 
-   subroutine end_loop(tab, tab_bounds)
+   subroutine end_loop(tab_bounds)
    implicit none
-   real(kind=R8), intent(inout), allocatable, dimension(:,:) :: tab
    type(tborne),  intent(inout), allocatable, dimension(:)   :: tab_bounds
 
-      if ( allocated( tab ) )         deallocate( tab )
       if ( allocated( tab_bounds ) )  deallocate( tab_bounds )
+
+      WITH_SAMPLING = .FALSE.
 
    return
    endsubroutine end_loop
+
+
+   subroutine ft_gauss(tab, scal)
+   implicit none
+   type(scale_surf), intent(inout)                 :: scal
+   real(kind=R8),    intent(inout), dimension(:,:) :: tab
+
+      integer(kind=I4) :: nx, ny
+      integer(kind=I4) :: degx, degy
+      integer(kind=I4) :: i, istat
+
+      real(kind=R8) :: dx, fft_cutoff, cutoff
+
+      real(kind=R8), allocatable, dimension(:,:) :: tab_tmp
+
+      character(len=512) :: surf_filename, new_surf_filename
+      character(len=512) :: wkd
+      character(len=128) :: str
+
+      read(JOB,*) fft_cutoff ; LIGNE_LUE = LIGNE_LUE + 1 ; write(SPY,*) LIGNE_LUE, fft_cutoff
+
+      nx = scal%xres
+      ny = scal%yres
+
+      dx = scal%dx * unit2IUf( scal%dx_unit )
+
+      allocate( tab_tmp(1:nx, 1:ny) )
+
+      cutoff = dx / fft_cutoff
+
+      call fftw_plan_with_nthreads( nthreads = NB_THREADS_FFT )
+
+      call init_fftw3( long = 2 * ( nint(PAD_FFT * nx)/2 ),    &  !
+                       larg = 2 * ( nint(PAD_FFT * ny)/2 ) )      ! because of 0 padding
+
+      call fft_filter(tab       = tab(1:nx, 1:ny),      & ! in
+                      long      = nx,                   & ! in
+                      larg      = ny,                   & ! in
+                      cutoff    = cutoff,               & ! in
+                      bf_tab    = tab_tmp(1:nx, 1:ny),  & ! out
+                      multi_fft = .false.)                ! in
+
+      call end_fftw3()
+
+      ! surface filename without the folders
+      surf_filename = filename( NOM_SUR )
+
+      ! folder name where the new surface is stored. Ex: FLT_030.5
+      write( str,'(i3.3,f0.1)') int(fft_cutoff*1e6), fft_cutoff*1e6 - int(fft_cutoff*1e6) ! writes 030, then .5
+      str = 'FLT_'//adjustl( trim(str) )
+
+      ! the folder must be created under the folder where the surface is. Recall that the currect directory
+      ! is set in subroutine lect_bas
+      call getcwd( wkd )
+      call mkdir(wkd = trim(wkd), directory = trim(str), sep = SEP, exit_status = istat)
+
+      ! set the new working directory
+      call chdir( trim(wkd)//SEP//trim(str) )
+      write(SPY, *) 'New working directory, after FT_GAUSS: ', trim(wkd)//SEP//trim(str)
+
+      ! the name of the new surface
+      NOM_SUR = repeat( ' ', len(NOM_SUR) )
+      NOM_SUR = surf_filename(1:len_trim(surf_filename) - 4)//'_'//trim(str)//'.sur'
+
+      ! the new surface is stored in, as an example: sur/FLT_030.5/file_FLT_030.5.sur
+      new_surf_filename = repeat( ' ', len(new_surf_filename) )
+      new_surf_filename = trim(str)//SEP//trim(NOM_SUR)
+
+      call write_surf(nom_fic = trim(NOM_SUR), tab_s = tab_tmp(1:nx, 1:ny), scal = scal)
+
+      deallocate( tab_tmp )
+
+   return
+   endsubroutine ft_gauss
 
 
    subroutine lssq_img(tab, scal)
@@ -748,7 +992,7 @@ o:    do
 
       character(len=512) :: surf_filename, new_surf_filename
       character(len=512) :: wkd
-      character(len=  6) :: str
+      character(len=128) :: str
 
       read(JOB,*) degx, degy ; LIGNE_LUE = LIGNE_LUE + 1 ; write(SPY,*) LIGNE_LUE, degx, degy
 
@@ -772,8 +1016,8 @@ o:    do
       ! surface filename without the folders
       surf_filename = filename( NOM_SUR )
 
-      ! folder name where the new surface is stored. Ex: DEG_8
-      write( str, '(i2)' ) degx
+      ! folder name where the new surface is stored. Ex: DEG_08_06
+      write( str, '(i2.2,a1,i2.2)' ) degx, '_', degy
       str = 'DEG_'//adjustl( trim(str) )
 
       ! the folder must be created under the folder where the surface is. Recall that the currect directory
@@ -787,7 +1031,7 @@ o:    do
 
       ! the name of the new surface
       NOM_SUR = repeat( ' ', len(NOM_SUR) )
-      write( NOM_SUR, '(a,2(a,i3.3),a)' ) surf_filename(1:len_trim(surf_filename) - 4), '_X1_', degx, '_Y1_', degy, '.sur'
+      write( NOM_SUR, '(a,2(a,i2.2),a)' ) surf_filename(1:len_trim(surf_filename) - 4), '_', degx, '_', degy, '.sur'
 
       ! the new surface is stored in, as an example: sur/DEG8/file_X1_008_Y1_008.sur
       new_surf_filename = repeat( ' ', len(new_surf_filename) )
