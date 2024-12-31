@@ -15,7 +15,7 @@ cd ../GPLOT ; make all
 cd ../FFTW3 ; make all
 cd ../INTPL ; make all
 
-cd ../TPGLIB
+cd ../../TPGLIB
 cd    STATS ; make all
 cd ../ASFC2 ; make all
 cd ../FILTR ; make all
@@ -24,9 +24,9 @@ cd ../DERIV ; make all
 cd ../ANISO ; make all
 cd ../MORPH ; make all
 
-cd ../TRIDENT
+cd ../../TRIDENT
 make all
 
-echo "OK"
+echo "press return"
 read wait
 

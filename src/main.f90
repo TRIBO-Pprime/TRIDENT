@@ -1,3 +1,10 @@
+!< author: Arthur Francisco
+!<  version: 1.0.0
+!<  date: december, 31 2024
+!<
+!<  <span style="color: #337ab7; font-family: cabin; font-size: 1.5em;">
+!<        **Trident application**
+!<  </span>
 program main
 !$ use omp_lib
 use script,          only : read_job

@@ -1,3 +1,10 @@
+!< author: Arthur Francisco
+!<  version: 1.0.0
+!<  date: december, 31 2024
+!<
+!<  <span style="color: #337ab7; font-family: cabin; font-size: 1.5em;">
+!<        **Trident batch application**
+!<  </span>
 module script
 !$ use omp_lib
 use data_arch,       only : I4, R8
@@ -11,7 +18,7 @@ use grad_curv,       only : peaks_and_pits_curvatures
 use stat_mom,        only : moment_stat, calc_moments, calc_median
 use asfc,            only : calcul_asfc_hermite, indice_fractal
 use anisotropy,      only : correlation_parameters, multiple_anisotropy, PAD_FFT_ANI, APO_FFT_ANI
-use fftw3,           only : init_fftw3, fftw_plan_with_nthreads, tab_init_fftw3, end_fftw3, tab_end_fftw3, NB_THREADS_FFT, PAD_FFT
+use fftw3,           only : init_fftw3_real, fftw_plan_with_nthreads, tab_init_fftw3_real, end_fftw3, tab_end_fftw3_real, NB_THREADS_FFT, PAD_FFT, FFTW_MEASURE
 use files,           only : make_path, path2vec, vec2path, filename, dir_separator, mkdir, dirname
 use tchebychev,      only : least_squares_tcheby
 
@@ -20,11 +27,11 @@ implicit none
 private
 
 integer(kind=I4) :: JOB, SPY, STA
-integer(kind=I4) :: LIGNE_LUE
+integer(kind=I4) :: LINE_READ
 
 integer(kind=I4) :: NB_THREADS
 
-integer(kind=I4) :: NB_ITER_DEB, NB_ITER_FIN, SAVE_LIGNE_LUE
+integer(kind=I4) :: NB_ITER_DEB, NB_ITER_FIN, SAVE_LINE_READ
 
 logical(kind=I4) :: GLOBAL_OMP
 logical(kind=I4) :: WITH_SAMPLING
@@ -48,7 +55,7 @@ contains
    !<
    !< Each keyword is an instruction - a macro - for a specific action:
    !<
-   !< + 'LECT_BAS', followed by the path a surface file, makes the program store the surface in
+   !< + 'READ_SUR', followed by the path a surface file, makes the program store the surface in
    !<               an array
    !< + 'LSSQ_IMG', followed by two integers, makes the program subtract a 2D polynomial, which
    !<               degrees are the provides integers.
@@ -88,20 +95,20 @@ contains
 
       APO_FFT_ANI = "no_apo"
 
-      LIGNE_LUE = 0
+      LINE_READ = 0
 o:    do
 
          mot_clef = repeat( ' ', len(mot_clef) )
 
-         read(JOB, *, iostat = vide) mot_clef ; LIGNE_LUE = LIGNE_LUE + 1
+         read(JOB, *, iostat = vide) mot_clef ; LINE_READ = LINE_READ + 1
 
-         write(SPY,*) LIGNE_LUE, trim(mot_clef)
+         write(SPY,*) LINE_READ, trim(mot_clef)
 
          selectcase( mot_clef(1:8) )
 
-            case('DEBUT___')
+            case('STRT_JOB')
 
-               call debut___()
+               call strt_job()
 
             case('ANALYSES')
 
@@ -137,11 +144,6 @@ o:    do
             case('HISTORY_')
 
 
-            case('LECT_BAS')
-
-               call lect_bas( tab  = surf,         &  ! OUT
-                              scal = surf_prop )      ! OUT
-
             case('LOW_PASS')
 
 
@@ -154,8 +156,20 @@ o:    do
 
                call nb_procs()
 
+            case('READ_SUR')
+
+               call read_sur( tab  = surf,         &  ! OUT
+                              scal = surf_prop )      ! OUT
+
             case('RESTRICT')
 
+
+            case('SAMPLING')
+
+               call sampling( scal       = surf_prop,          &  ! IN
+                              scal_samp  = samp_prop,          &  ! OUT
+                              nb_samp    = nb_samples,         &  ! OUT
+                              tab_bounds = sample_bounds )        ! OUT
 
             case('SAV_NAME')
 
@@ -175,13 +189,6 @@ o:    do
 
                call sta_loop()
 
-            case('TAB_BOOT')
-
-               call tab_boot( scal       = surf_prop,          &  ! IN
-                              scal_samp  = samp_prop,          &  ! OUT
-                              nb_samp    = nb_samples,         &  ! OUT
-                              tab_bounds = sample_bounds )        ! OUT
-
             case('VERBOSES')
 
                OUT_CMD = .TRUE.
@@ -190,7 +197,7 @@ o:    do
 
                call end_loop( tab_bounds = sample_bounds )        ! INOUT
 
-            case('FIN_____')
+            case('END__JOB')
 
                close(JOB)
 
@@ -206,7 +213,7 @@ o:    do
    endsubroutine read_job
 
 
-   subroutine debut___()
+   subroutine strt_job()
    !================================================================================================
    !! Some initializations: 'GLOBAL_OMP' (tasks parallelization), 'OUT_CMD' (verbose mode), etc.
    !------------------------------------------------------------------------------------------------
@@ -219,7 +226,7 @@ o:    do
       call random_init(.true., .true.)
 
    return
-   endsubroutine debut___
+   endsubroutine strt_job
 
 
    subroutine nb_procs()
@@ -230,7 +237,7 @@ o:    do
 
       integer(kind=I4) :: nb_th
 
-      read(JOB,*) nb_th ; LIGNE_LUE = LIGNE_LUE + 1 ; write(SPY, *) LIGNE_LUE, 'nb_procs', nb_th
+      read(JOB,*) nb_th ; LINE_READ = LINE_READ + 1 ; write(SPY, *) LINE_READ, 'nb_procs', nb_th
 
       select case( nb_th )
 
@@ -253,7 +260,7 @@ o:    do
    endsubroutine nb_procs
 
 
-   subroutine lect_bas(tab, scal)
+   subroutine read_sur(tab, scal)
    implicit none
    !================================================================================================
    !! Read a surface file
@@ -263,17 +270,18 @@ o:    do
 
       NOM_SUR = repeat(' ', len(NOM_SUR) )
 
-      read(JOB,*) NOM_SUR ; LIGNE_LUE = LIGNE_LUE + 1 ; write(SPY,*) LIGNE_LUE, 'nom_sur ', trim(NOM_SUR)
+      read(JOB,*) NOM_SUR ; LINE_READ = LINE_READ + 1 ; write(SPY,*) LINE_READ, 'nom_sur ', trim(NOM_SUR)
 
-      call chdir( dirname(NOM_SUR) )
       write(SPY, *) 'New working directory, after surface read: ', dirname(NOM_SUR)
 
       call read_surf( nom_fic = trim(NOM_SUR),  &  !  in; Digital Surf format
                         tab_s = tab,            &  ! out; array containing the surface
                          scal = scal )             ! out; surface type containing some informations like length, width, etc.
 
+      call chdir( dirname(NOM_SUR) )
+
    return
-   endsubroutine lect_bas
+   endsubroutine read_sur
 
 
    subroutine smooth__(tab, scal)
@@ -314,7 +322,7 @@ o:    do
 
       real(kind=R8), allocatable, dimension(:,:) :: tab_tmp
 
-      read(JOB,*) new_x, new_y ; LIGNE_LUE = LIGNE_LUE + 1 ; write(SPY,*) LIGNE_LUE, new_x, new_y
+      read(JOB,*) new_x, new_y ; LINE_READ = LINE_READ + 1 ; write(SPY,*) LINE_READ, new_x, new_y
 
       long = scal%xres
       larg = scal%yres
@@ -359,7 +367,7 @@ o:    do
 
       f_name = repeat(' ', len(f_name) )
 
-      read(JOB,*) f_name ; LIGNE_LUE = LIGNE_LUE + 1 ; write(SPY,*) LIGNE_LUE, 'NOM_SUR ', trim(f_name)
+      read(JOB,*) f_name ; LINE_READ = LINE_READ + 1 ; write(SPY,*) LINE_READ, 'NOM_SUR ', trim(f_name)
 
       call write_surf(nom_fic = trim(f_name), tab_s = tab(1:long, 1:larg), scal = scal)
 
@@ -367,32 +375,27 @@ o:    do
    endsubroutine save_sur
 
 
-   subroutine tab_boot(scal, scal_samp, nb_samp, tab_bounds)
+   subroutine sampling(scal, scal_samp, nb_samp, tab_bounds)
    !================================================================================================
    !< @note
    !<
-   !< The principle of the present function is to read a user-made batch file. The batch file, or
-   !< job file, contains a sequence of keywords.
+   !< The function *sampling* allow for the user to sample the surface.
    !<
-   !< Each keyword is an instruction - a macro - for a specific action:
+   !< The user is asked for the number of samples as well as the sample dimensions. It should be
+   !< noted that:
    !<
-   !< + 'LECT_BAS', followed by the path a surface file, makes the program store the surface in
-   !<               an array
-   !< + 'LSSQ_IMG', followed by two integers, makes the program subtract a 2D polynomial, which
-   !<               degrees are the provides integers.
-   !< + 'SMOOTH__' makes the program smooth the surface.
-   !< + etc.
+   !< + the number of samples *nb_samp* must be a square,
+   !< + the samples can overlap.
    !<
-   !< Some instruction keywords are present in the subroutine but not active; they will be implemented
-   !< in the future.
+   !< The output is just an array that contains the samples bound.
    !<
    !< @endnote
    !------------------------------------------------------------------------------------------------
    implicit none
-   type(scale_surf), intent(in )                            :: scal        !! *[[scale_surf]] object*
-   type(scale_surf), intent(out)                            :: scal_samp   !! *[[scale_surf]] object*
+   type(scale_surf), intent(in )                            :: scal        !! *[[scale_surf]] object of the input surface*
+   type(scale_surf), intent(out)                            :: scal_samp   !! *[[scale_surf]] object of a sample*
    integer(kind=I4), intent(out)                            :: nb_samp     !! *number of samples*
-   type(tborne),     intent(out), allocatable, dimension(:) :: tab_bounds  !! **
+   type(tborne),     intent(out), allocatable, dimension(:) :: tab_bounds  !! *array of the sample bounds*
 
       integer(kind=I4) :: nn_samp, pp_samp
       integer(kind=I4) :: snb, lb1, ub1, lb2, ub2
@@ -401,7 +404,7 @@ o:    do
 
       real(kind=R8) :: wd, ht
 
-      read(JOB,*) nn_samp, pp_samp, nb_samp ; LIGNE_LUE = LIGNE_LUE + 1 ; write(SPY,*) LIGNE_LUE, 'nn_samp ', nn_samp,  &  !
+      read(JOB,*) nn_samp, pp_samp, nb_samp ; LINE_READ = LINE_READ + 1 ; write(SPY,*) LINE_READ, 'nn_samp ', nn_samp,  &  !
                                                                                                   'pp_samp ', pp_samp,  &  !
                                                                                                   'nb_samp ', nb_samp
       scal_samp = scal
@@ -452,26 +455,40 @@ o:    do
       endif
 
    return
-   endsubroutine tab_boot
+   endsubroutine sampling
 
 
    subroutine sta_loop()
+   !================================================================================================
+   !! Start sample loop
+   !------------------------------------------------------------------------------------------------
    implicit none
 
-      read(JOB,*) NB_ITER_DEB, NB_ITER_FIN ; LIGNE_LUE = LIGNE_LUE + 1 ; write(SPY,*) LIGNE_LUE, 'nb_iter_deb ', NB_ITER_DEB, &  !
+      read(JOB,*) NB_ITER_DEB, NB_ITER_FIN ; LINE_READ = LINE_READ + 1 ; write(SPY,*) LINE_READ, 'nb_iter_deb ', NB_ITER_DEB, &  !
                                                                                                  'nb_iter_fin ', NB_ITER_FIN     !
-      SAVE_LIGNE_LUE = LIGNE_LUE - 1
+      SAVE_LINE_READ = LINE_READ - 1 ! save the line where STA_LOOP is found
 
    return
    endsubroutine sta_loop
 
 
    subroutine analyses(tab, scal, scal_samp, tab_bounds)
+   !================================================================================================
+   !< @note
+   !<
+   !< The function *analyses* reads, in the Job file, the analysis to perform. The analysis is then
+   !< performed.
+   !<
+   !< The analysis is always performed on the whole surface, and on the samples if it is asked. The
+   !< results are written in the file which unit is *STA*.
+   !<
+   !< @endnote
+   !------------------------------------------------------------------------------------------------
    implicit none
-   type(scale_surf), intent(in)                 :: scal
-   type(scale_surf), intent(in)                 :: scal_samp
-   real(kind=R8),    intent(in), dimension(:,:) :: tab
-   type(tborne),     intent(in), dimension(:)   :: tab_bounds
+   type(scale_surf), intent(in)                 :: scal           !! *[[scale_surf]] object of the input surface*
+   type(scale_surf), intent(in)                 :: scal_samp      !! *[[scale_surf]] object of a sample*
+   real(kind=R8),    intent(in), dimension(:,:) :: tab            !! *array of the surface*
+   type(tborne),     intent(in), dimension(:)   :: tab_bounds     !! *array of the sample bounds*
 
       integer(kind=I4) :: lb1, ub1, lb2, ub2
       integer(kind=I4) :: k
@@ -482,7 +499,7 @@ o:    do
       integer(kind=I4) :: exit_status
 
       character(len=512) :: cwd
-      character(len=512) :: ana_file, sf, surf_filename, header
+      character(len=512) :: ana_file, sf, surf_filename, csv_filename, header
       character(len=128) :: ana_type
       character(len=006) :: degxy
 
@@ -490,46 +507,61 @@ o:    do
 
       real(kind=R8), allocatable, dimension(:,:) :: tab_samp
 
-      read(JOB,*) ana_type ; LIGNE_LUE = LIGNE_LUE + 1 ; write(SPY,*) LIGNE_LUE, 'ana_type ', trim(ana_type)
+      read(JOB,*) ana_type ; LINE_READ = LINE_READ + 1 ; write(SPY,*) LINE_READ, 'ana_type ', trim(ana_type)
 
       nn = scal%xres
       pp = scal%yres
 
-      call get_unit(STA)
+      call get_unit(STA) ! STA is the file unit for the analyses output
 
-      call getcwd( cwd )
+      call getcwd( cwd ) ! what is the working directory?
 
       ! surface filename without the folders, with .csv instead of .sur
+      ! ex: "surface_02_01.sur" -> csv_filename = "surface_02_01.csv"
       surf_filename = filename( NOM_SUR )
       lf = len_trim(surf_filename)
-      surf_filename = surf_filename(1:lf - 4)//".csv"
+      csv_filename = surf_filename(1:lf - 4)//".csv"
 
+      ! surface filename without the folders and the polynomial degrees and degrees
+      ! ex: "surface_02_01.sur" -> degxy = "02_01"
+      !                               sf = "surface.sur"
       sf = filename( NOM_SUR )
       degxy = sf(lf - 9:lf - 3)
 
       sf = sf(1:lf - 10)//".sur"
 
+      ! create result folders/file
+      ! ex: resu_topology/surface_02_01.csv
       call make_ana_file(ana_f = ana_file, anal = ana_type(1:8))
+
+      ! "resu_topology/surface_02_01.csv" -> "resu_topoglob/surface_02_01.csv"
+      ! contains whole surface results
       ana_file(10:13) = 'glob'
 
       call fftw_plan_with_nthreads( nthreads = NB_THREADS_FFT )
 
-!~       call init_fftw3( long = 2 * ( nint(PAD_FFT * nn)/2 ),    &  !
-!~                        larg = 2 * ( nint(PAD_FFT * pp)/2 ) )      ! because of 0 padding
+      call init_fftw3_real( long      = 2 * ( nint(PAD_FFT * nn)/2 ),    &  !
+                            larg      = 2 * ( nint(PAD_FFT * pp)/2 ),    &  ! because of 0 padding
+                            plan_flag = FFTW_MEASURE )                      !
 
+      ! make csv header
       call make_header(head = header, anal = ana_type(1:8))
 
+      ! absolute path of the result file
       call make_path(wkd = trim(cwd), file_path = trim(ana_file), exit_status = exit_status)
+
+      !=======================================================
+      ! always perform analyses on the whole surface
 
       open( unit = STA, file = trim(ana_file) )
 
          write(STA,'(a)') trim(header)
 
-         call analyses_stat( tab      = tab(1:nn, 1:pp),   &  !
-                             sub_samp = .false.,           &  !
-                             scal     = scal,              &  !
-                             anal     = ana_type,          &  !
-                             omp      = GLOBAL_OMP )          !
+         call analyses_stat( tab      = tab(1:nn, 1:pp),   &  ! IN
+                             sub_samp = .false.,           &  ! IN
+                             scal     = scal,              &  ! IN
+                             anal     = ana_type,          &  ! IN
+                             omp      = GLOBAL_OMP )          ! IN
 
          if (OUT_CMD) write(*,*) trim(sf), ' ', trim(degxy(2:)), ' ', ana_type(1:8), ' ', 'glob'
 
@@ -538,31 +570,40 @@ o:    do
       call end_fftw3()
 
       !=======================================================
+      ! if SAMPLING is asked, perform analyses
 
       if ( WITH_SAMPLING .and. ana_type(1:8) /= 'abbott__') then
 
-         bound = tab_bounds( 1 )
+         bound = tab_bounds( 1 )                   ! retrieve 1st surface sample bounds
 
-         lb1 = bound%lb1 ; lb2 = bound%lb2
-         ub1 = bound%ub1 ; ub2 = bound%ub2
+         lb1 = bound%lb1 ; lb2 = bound%lb2         ! lower bounds
+         ub1 = bound%ub1 ; ub2 = bound%ub2         ! upper bounds
 
-         ns = ub1 - lb1 + 1 ; ps = ub2 - lb2 + 1
+         ns = ub1 - lb1 + 1 ; ps = ub2 - lb2 + 1   ! sample size (the same for all samples)
 
-         allocate( tab_samp(1:ns, 1:ps) )
+         allocate( tab_samp(1:ns, 1:ps) )          ! surface sample array (used for all samples)
 
+         ! batch size for parallel computing
          ibatch = max( ( NB_ITER_FIN - NB_ITER_DEB + 1 ) / NB_THREADS, 1 )
 
+         ! file unit for analysis results
          call get_unit(STA)
 
+         ! working directory
          call getcwd( cwd )
 
+         ! result file
          call make_ana_file(ana_f = ana_file, anal = ana_type(1:8))
 
+         ! one thread per fft calculus
          call fftw_plan_with_nthreads( nthreads = 1 )
 
-         call tab_init_fftw3( long = 2 * ( nint(PAD_FFT * ns)/2 ),    &  !
-                              larg = 2 * ( nint(PAD_FFT * ps)/2 ) )      ! because of 0 padding
+         ! to prevent fft folding, use 0 padding
+         call tab_init_fftw3_real( long      = 2 * ( nint(PAD_FFT * ns)/2 ),    &  !
+                                   larg      = 2 * ( nint(PAD_FFT * ps)/2 ),    &  ! because of 0 padding
+                                   plan_flag = FFTW_MEASURE )                      !
 
+         ! absolute path to result file
          call make_path(wkd = trim(cwd), file_path = trim(ana_file), exit_status = exit_status)
 
          open( unit = STA, file = trim(ana_file), share = 'DENYRW' )
@@ -593,7 +634,7 @@ o:    do
 
          close( STA )
 
-         call tab_end_fftw3()
+         call tab_end_fftw3_real()
 
          deallocate( tab_samp )
 
@@ -606,34 +647,38 @@ o:    do
    contains
 
       subroutine make_ana_file(ana_f, anal)
+      !-------------------------------------------------------------------------
+      !! create the path of the analysis result file
+      !-------------------------------------------------------------------------
+
       implicit none
-      character(len=*), intent(out) :: ana_f
-      character(len=8), intent(in ) :: anal
+      character(len=*), intent(out) :: ana_f    !! *path of the analysis result file*
+      character(len=8), intent(in ) :: anal     !! *analysis asked to be performed*
 
          ana_f = repeat( ' ', len(ana_f) )
 
          select case( anal )
 
             case('abbott__')
-               ana_f = "resu_abbott__"//SEP//trim( surf_filename )
+               ana_f = "resu_abbott__"//SEP//trim( csv_filename )
 
             case('complexi')
-               ana_f = "resu_complexi"//SEP//trim( surf_filename )
+               ana_f = "resu_complexi"//SEP//trim( csv_filename )
 
             case('elli_acv')
-               ana_f = "resu_elli_acv"//SEP//trim( surf_filename )
+               ana_f = "resu_elli_acv"//SEP//trim( csv_filename )
 
             case('facettes')
-               ana_f = "resu_facettes"//SEP//trim( surf_filename )
+               ana_f = "resu_facettes"//SEP//trim( csv_filename )
 
             case('ind_frac')
-               ana_f = "resu_ind_frac"//SEP//trim( surf_filename )
+               ana_f = "resu_ind_frac"//SEP//trim( csv_filename )
 
             case('statisti')
-               ana_f = "resu_statisti"//SEP//trim( surf_filename )
+               ana_f = "resu_statisti"//SEP//trim( csv_filename )
 
             case('topology')
-               ana_f = "resu_topology"//SEP//trim( surf_filename )
+               ana_f = "resu_topology"//SEP//trim( csv_filename )
 
             case default
                stop 'Bad choice of analysis in subroutine analyses'
@@ -644,9 +689,12 @@ o:    do
       endsubroutine make_ana_file
 
       subroutine make_header(head, anal)
+      !-------------------------------------------------------------------------
+      !! create the header for the analysis result csv file
+      !-------------------------------------------------------------------------
       implicit none
-      character(len=*), intent(out) :: head
-      character(len=8), intent(in ) :: anal
+      character(len=*), intent(out) :: head  !! *header as a string*
+      character(len=8), intent(in ) :: anal  !! *analysis asked to be performed*
 
          head = repeat( ' ', len(head) )
 
@@ -723,12 +771,16 @@ o:    do
       endsubroutine make_header
 
       subroutine analyses_stat(tab, sub_samp, scal, anal, omp)
+      !-------------------------------------------------------------------------
+      !! Perform analyses on the surface *tab*. The results are written in the file
+      !! of unit *STA*.
+      !-------------------------------------------------------------------------
       implicit none
-      type(scale_surf), intent(in )                 :: scal
-      character(len=8), intent(in )                 :: anal
-      logical(kind=I4), intent(in )                 :: omp
-      logical(kind=I4), intent(in )                 :: sub_samp
-      real(kind=R8),    intent(in ), dimension(:,:) :: tab
+      type(scale_surf), intent(in )                 :: scal       !! *[[scale_surf]] object*
+      character(len=8), intent(in )                 :: anal       !! *analysis asked to be performed*
+      logical(kind=I4), intent(in )                 :: omp        !! *parallel computing?*
+      logical(kind=I4), intent(in )                 :: sub_samp   !! *surface sampling?*
+      real(kind=R8),    intent(in ), dimension(:,:) :: tab        !! *surface height array*
 
          integer (kind=I4) :: nx, ny
 
@@ -916,12 +968,12 @@ o:    do
                                             omp       = omp )                 ! IN
 
                ana_res(9:17) = 0
-!~                call multiple_anisotropy( tabin     = tab(1:nx, 1:ny),       &  ! IN
-!~                                          long      = nx,                    &  ! IN
-!~                                          larg      = ny,                    &  ! IN
-!~                                          scale_xy  = [ dx, dy ],            &  ! IN
-!~                                          multi_fft = sub_samp,              &  ! IN
-!~                                          vec_ani   = ana_res(9:17) )           ! OUT
+               call multiple_anisotropy( tabin     = tab(1:nx, 1:ny),       &  ! IN
+                                         long      = nx,                    &  ! IN
+                                         larg      = ny,                    &  ! IN
+                                         scale_xy  = [ dx, dy ],            &  ! IN
+                                         multi_fft = sub_samp,              &  ! IN
+                                         vec_ani   = ana_res(9:17) )           ! OUT
 
                !$omp critical
                write(STA,'(17(a,E18.6))') trim(sf)//',',       &  !
@@ -957,8 +1009,11 @@ o:    do
 
 
    subroutine end_loop(tab_bounds)
+   !================================================================================================
+   !! End of the Job file - some finalizations.
+   !------------------------------------------------------------------------------------------------
    implicit none
-   type(tborne),  intent(inout), allocatable, dimension(:)   :: tab_bounds
+   type(tborne),  intent(inout), allocatable, dimension(:)   :: tab_bounds !! *array to deallocate*
 
       if ( allocated( tab_bounds ) )  deallocate( tab_bounds )
 
@@ -969,9 +1024,26 @@ o:    do
 
 
    subroutine ft_gauss(tab, scal)
+   !================================================================================================
+   !< @note
+   !<
+   !< The function *ft_gauss* performs a Gaussian filter on the surface *tab*. It:
+   !<
+   !< + reads the *fft_cutoff* in the Job file
+   !< + applies the corresponding Gaussian filter
+   !< + creates a new folder
+   !< + stores the new surface in the new folder.
+   !<
+   !< Example:
+   !<
+   !< if cutoff = 30.5 µm and the working directory `sur`, the resulting surface is
+   !< `sur/FLT_030.5/file_FLT_030.5.sur`
+   !<
+   !< @endnote
+   !------------------------------------------------------------------------------------------------
    implicit none
-   type(scale_surf), intent(inout)                 :: scal
-   real(kind=R8),    intent(inout), dimension(:,:) :: tab
+   type(scale_surf), intent(inout)                 :: scal  !! *[[scale_surf]] object of the input surface*
+   real(kind=R8),    intent(inout), dimension(:,:) :: tab   !! *array of the surface*
 
       integer(kind=I4) :: nx, ny
       integer(kind=I4) :: degx, degy
@@ -985,7 +1057,7 @@ o:    do
       character(len=512) :: wkd
       character(len=128) :: str
 
-      read(JOB,*) fft_cutoff ; LIGNE_LUE = LIGNE_LUE + 1 ; write(SPY,*) LIGNE_LUE, fft_cutoff
+      read(JOB,*) fft_cutoff ; LINE_READ = LINE_READ + 1 ; write(SPY,*) LINE_READ, fft_cutoff
 
       nx = scal%xres
       ny = scal%yres
@@ -998,8 +1070,9 @@ o:    do
 
       call fftw_plan_with_nthreads( nthreads = NB_THREADS_FFT )
 
-      call init_fftw3( long = 2 * ( nint(PAD_FFT * nx)/2 ),    &  !
-                       larg = 2 * ( nint(PAD_FFT * ny)/2 ) )      ! because of 0 padding
+      call init_fftw3_real( long      = 2 * ( nint(PAD_FFT * nx)/2 ),    &  !
+                            larg      = 2 * ( nint(PAD_FFT * ny)/2 ),    &  ! because of 0 padding
+                            plan_flag = FFTW_MEASURE )                      !
 
       call fft_filter(tab       = tab(1:nx, 1:ny),      & ! in
                       long      = nx,                   & ! in
@@ -1018,7 +1091,7 @@ o:    do
       str = 'FLT_'//adjustl( trim(str) )
 
       ! the folder must be created under the folder where the surface is. Recall that the currect directory
-      ! is set in subroutine lect_bas
+      ! is set in subroutine read_sur
       call getcwd( wkd )
       call mkdir(wkd = trim(wkd), directory = trim(str), sep = SEP, exit_status = istat)
 
@@ -1043,9 +1116,26 @@ o:    do
 
 
    subroutine lssq_img(tab, scal)
+   !================================================================================================
+   !< @note
+   !<
+   !< The function *lssq_img* subtracts a least square 2D polynomial from *tab*. It:
+   !<
+   !< + reads the degrees in the Job file
+   !< + calculates and subtracts the least square 2D polynomial
+   !< + creates a new folder
+   !< + stores the new surface in the new folder.
+   !<
+   !< Example:
+   !<
+   !< if degrees are (5,8) and the working directory `sur`, the resulting surface is
+   !< `sur/DEG_05_08/file_X1_005_Y1_008.sur`
+   !<
+   !< @endnote
+   !------------------------------------------------------------------------------------------------
    implicit none
-   type(scale_surf), intent(inout)                 :: scal
-   real(kind=R8),    intent(inout), dimension(:,:) :: tab
+   type(scale_surf), intent(inout)                 :: scal  !! *[[scale_surf]] object of the input surface*
+   real(kind=R8),    intent(inout), dimension(:,:) :: tab   !! *array of the surface*
 
       integer(kind=I4) :: long, larg
       integer(kind=I4) :: degx, degy
@@ -1057,7 +1147,7 @@ o:    do
       character(len=512) :: wkd
       character(len=128) :: str
 
-      read(JOB,*) degx, degy ; LIGNE_LUE = LIGNE_LUE + 1 ; write(SPY,*) LIGNE_LUE, degx, degy
+      read(JOB,*) degx, degy ; LINE_READ = LINE_READ + 1 ; write(SPY,*) LINE_READ, degx, degy
 
       long = scal%xres
       larg = scal%yres
@@ -1084,7 +1174,7 @@ o:    do
       str = 'DEG_'//adjustl( trim(str) )
 
       ! the folder must be created under the folder where the surface is. Recall that the currect directory
-      ! is set in subroutine lect_bas
+      ! is set in subroutine read_sur
       call getcwd( wkd )
       call mkdir(wkd = trim(wkd), directory = trim(str), sep = SEP, exit_status = istat)
 
@@ -1096,7 +1186,7 @@ o:    do
       NOM_SUR = repeat( ' ', len(NOM_SUR) )
       write( NOM_SUR, '(a,2(a,i2.2),a)' ) surf_filename(1:len_trim(surf_filename) - 4), '_', degx, '_', degy, '.sur'
 
-      ! the new surface is stored in, as an example: sur/DEG8/file_X1_008_Y1_008.sur
+      ! the new surface is stored in, as an example: sur/DEG_05_08/file_X1_005_Y1_008.sur
       new_surf_filename = repeat( ' ', len(new_surf_filename) )
       new_surf_filename = trim(str)//SEP//trim(NOM_SUR)
 
