@@ -1,0 +1,95 @@
+----------------------- start surface n°1
+STRT_JOB                                        - start job for surface n°1
+
+VERBOSES                                        - some messages output
+
+NB_PROCS                                        - number of concurrent threads (0 for all available threads)
+   +0
+
+READ_SUR                                        - read a surface file .sur (replace absolute path to surface file)
+   "absolute_path/sur/test1.sur"
+
+SMOOTH__                                        - smooth out the input surface
+
+LSSQ_IMG                                        - subtract a 2D polynomial
+   +0000   +0000                                         - degree_x degree_y
+
+SAMPLING                                        - sampling or not
+   +0256   +0256   -0001                                    - size_x size_y number_of_samples ( -1 for non sampling)
+
+STA_LOOP                                        - start loop across samples
+   +0001   +0001                                         - starting_sample ending_sample
+
+   ANALYSES
+      'abbott__'                                         - Abbott's parameters
+
+   ANALYSES
+      'topology'                                         - Topology parameters
+
+   ANALYSES
+      'statisti'                                         - statistic parameters
+
+   ANALYSES
+      'ind_frac'                                         - fractal parameters
+
+   ANALYSES
+      'facettes'                                         - planeity parameters
+
+   ANALYSES
+      'complexi'                                         - complexity parameters
+
+   ANALYSES
+      'elli_acv'                                         - autocorrelation parameters
+
+END_LOOP                                        - end job for surface n°1
+-----------------------   end surface n°1
+
+----------------------- start surface n°2
+STRT_JOB                                        - start job for surface n°2
+
+VERBOSES                                        - some messages output
+
+NB_PROCS                                        - number of concurrent threads (0 for all available threads)
+   +0
+
+READ_SUR                                        - read a surface file .sur (replace absolute path to surface file)
+   "absolute_path/sur/test2.sur"
+
+SMOOTH__                                        - smooth out the input surface
+
+LSSQ_IMG                                        - subtract a 2D polynomial
+   +0004   +0006                                         - degree_x degree_y
+
+SAMPLING                                        - sampling or not
+   +0256   +0256   +0016                                    - size_x size_y number_of_samples ( -1 for non sampling)
+
+STA_LOOP                                        - start loop across samples
+   +0001   +0016                                         - starting_sample ending_sample
+
+   ANALYSES
+      'abbott__'                                         - Abbott's parameters
+
+   ANALYSES
+      'topology'                                         - Topology parameters
+
+   ANALYSES
+      'statisti'                                         - statistic parameters
+
+   ANALYSES
+      'ind_frac'                                         - fractal parameters
+
+   ANALYSES
+      'facettes'                                         - planeity parameters
+
+   ANALYSES
+      'complexi'                                         - complexity parameters
+
+   ANALYSES
+      'elli_acv'                                         - autocorrelation parameters
+
+END_LOOP                                        - end job for surface n°2
+-----------------------   end surface n°2
+
+======================= END OF JOB
+END__JOB
+
