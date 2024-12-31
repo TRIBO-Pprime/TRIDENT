@@ -1,5 +1,5 @@
 ---
-project: CREST
+project: TRIDENT
 summary: **TRIDENT** -- TRIbologie DENTaire <br/> ![TRIDENT_img](./media/TRIDENT_small.jpg)
 author:  Arthur Francisco
 src_dir: ./src
@@ -31,4 +31,7 @@ creation_date: %Y-%m-%d %H:%M %z
 md_extensions: markdown.extensions.toc
                markdown.extensions.smarty
 ---
+
+-----------------
+{!README.md!}
 

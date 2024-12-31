@@ -10,7 +10,7 @@
     <meta name="author" content="Arthur Francisco" >
     <link rel="icon" href="./favicon.png">
 
-    <title> CREST </title>
+    <title> TRIDENT </title>
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet"
           integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
@@ -29,7 +29,7 @@
     <div class="container-fluid mb-sm-4 mb-xl-2">
       <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
         <div class="container">
-          <a class="navbar-brand" href="./index.html">CREST </a>
+          <a class="navbar-brand" href="./index.html">TRIDENT </a>
           <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar"
                   aria-expanded="false" aria-controls="navbar" aria-label="Toggle navigation">
                   <span class="navbar-toggler-icon">
@@ -71,8 +71,88 @@
 
       <div class="row" id='text'>
         <div class=col-md-8>
-          <h1>CREST</h1>
-          
+          <h1>TRIDENT</h1>
+          <hr>
+<h2 id="brief-description">Brief description</h2>
+<p><strong>TRIDENT</strong> - <strong>TRI</strong>bologie <strong>DENT</strong>aire - is designed to characterize dental surface microwear. It:</p>
+<ul>
+<li>reads a batch file</li>
+<li>transforms each keyword in an action</li>
+<li>when encountered, performs an analysis</li>
+<li>and writes the results in a specific file</li>
+</ul>
+<p>The programs are written in Fortran (2003+)</p>
+<p><a href="#table-of-contents">top</a></p>
+<h2 id="building-trident">Building TRIDENT</h2>
+<p>Make sure that the dependencies described below are built.</p>
+<p>Debug mode:</p>
+<div class="codehilite"><pre><span></span><code>make<span class="w"> </span>debug
+</code></pre></div>
+
+<p>Normal mode:</p>
+<div class="codehilite"><pre><span></span><code>make
+</code></pre></div>
+
+<h2 id="dependencies">Dependencies</h2>
+<p>TRIDENT needs some components that are available through the following packages:</p>
+<ul>
+<li>
+<p><em>TOOLIB</em> &hellip; Some general tools like FFT, file handling, minimization, sorting, etc.</p>
+</li>
+<li>
+<p><em>TPGLIB</em> &hellip; Some more specific programs like filtering, anisotropy analysis, derivation, etc.</p>
+</li>
+</ul>
+<p>As a the packages <a href="https://github.com/TRIBO-Pprime/TOOLIB">TOOLIB</a> and <a href="https://github.com/TRIBO-Pprime/TPGLIB">TPGLIB</a> have to be downloaded.</p>
+<p><a href="#table-of-contents">top</a></p>
+<h2 id="third-party-components">Third party components</h2>
+<p>TOOLIB also uses external codes such as:</p>
+<ul>
+<li>
+<p><em>FFTW3.3</em> &hellip; <a href="https://www.fftw.org/">Fastest Fourier Transform in the West</a> &hellip; GNU General Public License</p>
+</li>
+<li>
+<p><em>Pikaia_oop</em> &hellip; <a href="http://github.com/jacobwilliams/pikaia">Modern Fortran Edition of the Pikaia Genetic Algorithm</a> &hellip; BSD like</p>
+</li>
+<li>
+<p><em>GNUFOR</em> &hellip; <a href="https://people.math.sc.edu/Burkardt/f_src/gnufor/gnufor.html">Gnuplot Fortran</a> &hellip; GNU General Public License</p>
+</li>
+<li>
+<p><em>Bspline-fortran</em> &hellip; <a href="https://github.com/jacobwilliams/bspline-fortran">Multidimensional B-Spline Interpolation of Data on a Regular Grid</a> &hellip; BSD like</p>
+</li>
+</ul>
+<p><code>.sur</code> surface files can be visualized and analyzed with <a href="http://gwyddion.net/download.php">Gwyddion software</a>, a modular program for SPM (scanning probe microscopy) data visualization and analysis.</p>
+<h2 id="typical-use">Typical use</h2>
+<p>The program <code>main</code> reads a script file <code>my_script.f90</code> where the following parameters are typically defined:</p>
+<ul>
+<li>the number of threads</li>
+<li>the surface to be analyzed (.sur file)</li>
+<li>the sampling parameters</li>
+<li>the analyses to be performed</li>
+</ul>
+<p>Run:</p>
+<div class="codehilite"><pre><span></span><code>./main<span class="w"> </span>cfg/my_script.md
+</code></pre></div>
+
+<p><a href="#table-of-contents">top</a></p>
+<h2 id="example-of-use">Example of use</h2>
+<h2 id="test-1-1-surface-global-analysis">Test 1 &ndash; 1 surface, global analysis</h2>
+<p>Run:</p>
+<div class="codehilite"><pre><span></span><code>./main<span class="w"> </span>cfg/test1.job
+</code></pre></div>
+
+<h2 id="test-2-2-surfaces-global-and-sampling-analysis">Test 2 &ndash; 2 surfaces, global and sampling analysis</h2>
+<p>Run:</p>
+<div class="codehilite"><pre><span></span><code>./main<span class="w"> </span>cfg/test2.job
+</code></pre></div>
+
+<h2 id="documentation">Documentation</h2>
+<p>The documentation is automatically generated with <a href="https://github.com/Fortran-FOSS-Programmers/ford">FORD</a>, an automatic documentation generator for modern Fortran programs.</p>
+<p><a href="#table-of-contents">top</a></p>
+<h2 id="license">License</h2>
+<p>This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.</p>
+<p>This program is distributed in the hope that it will be useful, but without any warrenty; without even the implied warranty of merchantability or fitness for a particular purpose. See the GNU General Public License for more details.</p>
+<p>You should have received a <a href="https://github.com/TRIBO-Pprime/TRIDENT/LICENSE">copy</a> of the GNU General Public License along with this program. If not, see the <a href="https://www.gnu.org/licenses/gpl.html">GNU website</a>.</p>
         </div>
           <div class="col-md-4">
             <div class="card card-body bg-light">
@@ -136,7 +216,7 @@
         <div class="row justify-content-between">
           <div class="col">
             <p>
-              CREST
+              TRIDENT
  was developed by Arthur Francisco<br>              &copy; 2024 
 </p>
           </div>
@@ -144,7 +224,7 @@
             <p class="text-end">
               Documentation generated by
               <a href="https://github.com/Fortran-FOSS-Programmers/ford">FORD</a>
- on 2024-12-31 18:20              </p>
+ on 2024-12-31 18:29              </p>
           </div>
         </div>
         <br>
