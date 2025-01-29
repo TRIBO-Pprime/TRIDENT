@@ -18,7 +18,7 @@ use grad_curv,       only : peaks_and_pits_curvatures
 use stat_mom,        only : moment_stat, calc_moments, calc_median
 use asfc,            only : calcul_asfc_hermite, indice_fractal
 use anisotropy,      only : correlation_parameters, multiple_anisotropy, PAD_FFT_ANI, APO_FFT_ANI
-use fftw3,           only : init_fftw3_real, fftw_plan_with_nthreads, tab_init_fftw3_real, end_fftw3, tab_end_fftw3_real, NB_THREADS_FFT, PAD_FFT, FFTW_MEASURE
+use fftw3,           only : init_fftw3, fftw_plan_with_nthreads, tab_init_fftw3, end_fftw3, tab_end_fftw3, NB_THREADS_FFT, PAD_FFT, FFTW_MEASURE
 use files,           only : make_path, path2vec, vec2path, filename, dir_separator, mkdir, dirname
 use tchebychev,      only : least_squares_tcheby
 
@@ -540,9 +540,8 @@ o:    do
 
       call fftw_plan_with_nthreads( nthreads = NB_THREADS_FFT )
 
-      call init_fftw3_real( long      = 2 * ( nint(PAD_FFT * nn)/2 ),    &  !
-                            larg      = 2 * ( nint(PAD_FFT * pp)/2 ),    &  ! because of 0 padding
-                            plan_flag = FFTW_MEASURE )                      !
+      call init_fftw3( long = 2 * ( nint(PAD_FFT * nn)/2 ),    &  !
+                       larg = 2 * ( nint(PAD_FFT * pp)/2 ) )      ! because of 0 padding
 
       ! make csv header
       call make_header(head = header, anal = ana_type(1:8))
@@ -599,9 +598,9 @@ o:    do
          call fftw_plan_with_nthreads( nthreads = 1 )
 
          ! to prevent fft folding, use 0 padding
-         call tab_init_fftw3_real( long      = 2 * ( nint(PAD_FFT * ns)/2 ),    &  !
-                                   larg      = 2 * ( nint(PAD_FFT * ps)/2 ),    &  ! because of 0 padding
-                                   plan_flag = FFTW_MEASURE )                      !
+         call tab_init_fftw3(      long = 2 * ( nint(PAD_FFT * ns)/2 ),    &  !
+                                   larg = 2 * ( nint(PAD_FFT * ps)/2 ),    &  ! because of 0 padding
+                              plan_flag = FFTW_MEASURE )                      !
 
          ! absolute path to result file
          call make_path(wkd = trim(cwd), file_path = trim(ana_file), exit_status = exit_status)
@@ -634,7 +633,7 @@ o:    do
 
          close( STA )
 
-         call tab_end_fftw3_real()
+         call tab_end_fftw3()
 
          deallocate( tab_samp )
 
@@ -963,7 +962,8 @@ o:    do
                                             larg      = ny,                &  ! IN
                                             res       = ana_res(1:8),      &  ! OUT
                                             cut       = 0.2_R8,            &  ! IN 0.5_R8,            &  ! IN
-                                            sub_plane = sub_samp,          &  ! IN, remove plane in samplings
+                                            sub_plane = .true.,            &  ! IN, remove plane?
+                                            sub_sampl = sub_samp,          &  ! IN, subsampling?
                                             scale_xy  = [ dx, dy ],        &  ! IN
                                             omp       = omp )                 ! IN
 
@@ -1070,9 +1070,8 @@ o:    do
 
       call fftw_plan_with_nthreads( nthreads = NB_THREADS_FFT )
 
-      call init_fftw3_real( long      = 2 * ( nint(PAD_FFT * nx)/2 ),    &  !
-                            larg      = 2 * ( nint(PAD_FFT * ny)/2 ),    &  ! because of 0 padding
-                            plan_flag = FFTW_MEASURE )                      !
+      call init_fftw3( long = 2 * ( nint(PAD_FFT * nx)/2 ),    &  !
+                       larg = 2 * ( nint(PAD_FFT * ny)/2 ) )      ! because of 0 padding
 
       call fft_filter(tab       = tab(1:nx, 1:ny),      & ! in
                       long      = nx,                   & ! in

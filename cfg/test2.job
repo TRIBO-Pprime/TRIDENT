@@ -52,7 +52,7 @@ VERBOSES                                        - some messages output
 NB_PROCS                                        - number of concurrent threads (0 for all available threads)
    +0
 
-READ_SUR                                        - read a surface file .sur (replace absolute path to surface file)
+READ_SUR                                        - read a surface file .sur (replace "absolute_path" to surface file)
    "absolute_path/sur/test2.sur"
 
 SMOOTH__                                        - smooth out the input surface
