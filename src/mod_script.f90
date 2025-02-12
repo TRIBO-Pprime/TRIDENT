@@ -1066,21 +1066,31 @@ o:    do
 
       allocate( tab_tmp(1:nx, 1:ny) )
 
-      cutoff = dx / fft_cutoff
+      if ( fft_cutoff > 0. ) then
 
-      call fftw_plan_with_nthreads( nthreads = NB_THREADS_FFT )
+         cutoff = dx / fft_cutoff
 
-      call init_fftw3( long = 2 * ( nint(PAD_FFT * nx)/2 ),    &  !
-                       larg = 2 * ( nint(PAD_FFT * ny)/2 ) )      ! because of 0 padding
+         call fftw_plan_with_nthreads( nthreads = NB_THREADS_FFT )
 
-      call fft_filter(tab       = tab(1:nx, 1:ny),      & ! in
-                      long      = nx,                   & ! in
-                      larg      = ny,                   & ! in
-                      cutoff    = cutoff,               & ! in
-                      bf_tab    = tab_tmp(1:nx, 1:ny),  & ! out
-                      multi_fft = .false.)                ! in
+         call init_fftw3( long = 2 * ( nint(PAD_FFT * nx)/2 ),    &  !
+                          larg = 2 * ( nint(PAD_FFT * ny)/2 ) )      ! because of 0 padding
 
-      call end_fftw3()
+         call fft_filter(tab       = tab(1:nx, 1:ny),      & ! in
+                         long      = nx,                   & ! in
+                         larg      = ny,                   & ! in
+                         cutoff    = cutoff,               & ! in
+                         bf_tab    = tab_tmp(1:nx, 1:ny),  & ! out
+                         multi_fft = .false.)                ! in
+
+         call end_fftw3()
+
+      else
+
+         tab_tmp(1:nx, 1:ny) = tab(1:nx, 1:ny)
+
+         fft_cutoff = 0.
+
+      endif
 
       ! surface filename without the folders
       surf_filename = filename( NOM_SUR )
@@ -1092,6 +1102,7 @@ o:    do
       ! the folder must be created under the folder where the surface is. Recall that the currect directory
       ! is set in subroutine read_sur
       call getcwd( wkd )
+
       call mkdir(wkd = trim(wkd), directory = trim(str), sep = SEP, exit_status = istat)
 
       ! set the new working directory
